@@ -18,9 +18,11 @@ import {
 
 interface DashboardProps {
   onShowMap: () => void;
+  onAnalyze: (id: string) => void;
+  onGenerateReport: (id: string) => void;
 }
 
-const Dashboard = ({ onShowMap }: DashboardProps) => {
+const Dashboard = ({ onShowMap, onAnalyze, onGenerateReport }: DashboardProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
 
@@ -111,15 +113,6 @@ const Dashboard = ({ onShowMap }: DashboardProps) => {
     mockLocations.reduce((sum, loc) => sum + loc.overallScore, 0) / mockLocations.length
   );
 
-  const handleAnalyze = (id: string) => {
-    console.log('Analyzing location:', id);
-    // TODO: Implement analysis logic
-  };
-
-  const handleGenerateReport = (id: string) => {
-    console.log('Generating report for:', id);
-    // TODO: Implement report generation
-  };
 
   return (
     <div className="p-6 space-y-6">
@@ -264,8 +257,8 @@ const Dashboard = ({ onShowMap }: DashboardProps) => {
               <LocationCard
                 key={location.id}
                 location={location}
-                onAnalyze={handleAnalyze}
-                onGenerateReport={handleGenerateReport}
+                onAnalyze={onAnalyze}
+                onGenerateReport={onGenerateReport}
               />
             ))}
           </div>
