@@ -1,25 +1,201 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './button';
 import { Input } from './input';
-import { Search, MapPin, Plus } from 'lucide-react';
+import { Badge } from './badge';
+import { Search, MapPin, Plus, Layers, Eye, EyeOff } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix for default markers
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
 
 interface MapProps {
   onLocationSave?: (location: { lng: number; lat: number; address: string }) => void;
 }
 
+interface WMSLayer {
+  id: string;
+  name: string;
+  url: string;
+  layers: string;
+  visible: boolean;
+  color: string;
+}
+
+
 const LeafletMap = ({ onLocationSave }: MapProps) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [showLayerPanel, setShowLayerPanel] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<{
     lng: number;
     lat: number;
     address: string;
   } | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const wmsLayerRefs = useRef<{ [key: string]: L.TileLayer.WMS }>({});
+  const selectedMarkerRef = useRef<L.Marker | null>(null);
 
-  const handleSearch = async () => {
-    if (!searchQuery) return;
-    // TODO: Implement search with OpenStreetMap Nominatim
-    console.log('Search:', searchQuery);
+  const [wmsLayers, setWmsLayers] = useState<WMSLayer[]>([
+    {
+      id: 'heritage',
+      name: '🏛️ Denkmalschutz',
+      url: 'https://gdi.berlin.de/services/wms/denkmale',
+      layers: 'denkmale:a_baudenkmal,denkmale:b_bodendenkmal,denkmale:c_gartendenkmal,denkmale:d_denkmalbereich_gesamtanlage,denkmale:e_denkmalbereich_ensemble',
+      visible: false,
+      color: 'bg-amber-500'
+    },
+    {
+      id: 'trees',
+      name: '🌳 Bäume',
+      url: 'https://gdi.berlin.de/services/wms/baumbestand',
+      layers: 'baumbestand:strassenbaeume,baumbestand:anlagenbaeume',
+      visible: false,
+      color: 'bg-green-500'
+    },
+    {
+      id: 'traffic',
+      name: '🚗 Verkehrsmengen',
+      url: 'https://gdi.berlin.de/services/wms/verkehrsmengen_2023',
+      layers: 'dtvw2023kfz',
+      visible: false,
+      color: 'bg-red-500'
+    },
+    {
+      id: 'transport',
+      name: '🚋 ÖPNV',
+      url: 'https://gdi.berlin.de/services/wms/oepnv_ungestoert',
+      layers: 'a_busstopp,b_tramstopp',
+      visible: false,
+      color: 'bg-blue-500'
+    }
+  ]);
+
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (searchQuery.length < 3) {
+      setSearchResults([]);
+      return;
+    }
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5&addressdetails=1&bounded=1&viewbox=13.0883,52.3389,13.7611,52.6755`
+        );
+        const data = await response.json();
+        setSearchResults(data);
+      } catch (error) {
+        console.error('Search error:', error);
+        setSearchResults([]);
+      }
+    }, 300);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery]);
+
+  // Initialize map
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return;
+
+    const map = L.map(mapContainerRef.current).setView([52.5200, 13.4050], 11);
+    
+    // Add OpenStreetMap base layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Add click handler
+    map.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      handleMapClick(lat, lng);
+    });
+
+    mapRef.current = map;
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []);
+
+  // Handle WMS layer visibility changes
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    wmsLayers.forEach((layer) => {
+      const existingLayer = wmsLayerRefs.current[layer.id];
+      
+      if (layer.visible && !existingLayer) {
+        // Add layer
+        const wmsLayer = L.tileLayer.wms(layer.url, {
+          layers: layer.layers,
+          format: 'image/png',
+          transparent: true,
+          opacity: 0.7,
+          attribution: ''
+        });
+        wmsLayer.addTo(mapRef.current);
+        wmsLayerRefs.current[layer.id] = wmsLayer;
+      } else if (!layer.visible && existingLayer) {
+        // Remove layer
+        mapRef.current.removeLayer(existingLayer);
+        delete wmsLayerRefs.current[layer.id];
+      }
+    });
+  }, [wmsLayers]);
+
+  const handleSearchResultClick = (result: any) => {
+    const lat = parseFloat(result.lat);
+    const lng = parseFloat(result.lon);
+    setSearchResults([]);
+    setSearchQuery(result.display_name);
+    
+    if (mapRef.current) {
+      mapRef.current.setView([lat, lng], 16);
+    }
   };
+
+  const toggleLayer = (layerId: string) => {
+    setWmsLayers(prev => prev.map(layer => 
+      layer.id === layerId ? { ...layer, visible: !layer.visible } : layer
+    ));
+  };
+
+  // Handle selected location marker
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Remove existing marker
+    if (selectedMarkerRef.current) {
+      mapRef.current.removeLayer(selectedMarkerRef.current);
+      selectedMarkerRef.current = null;
+    }
+
+    // Add new marker if location is selected
+    if (selectedLocation) {
+      const marker = L.marker([selectedLocation.lat, selectedLocation.lng])
+        .bindPopup(`<strong>Ausgewählter Standort</strong><br/>${selectedLocation.address}`)
+        .addTo(mapRef.current);
+      selectedMarkerRef.current = marker;
+    }
+  }, [selectedLocation]);
 
   const handleMapClick = async (lat: number, lng: number) => {
     try {
@@ -52,20 +228,69 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
       {/* Search Bar */}
       <div className="absolute top-4 left-4 right-4 z-[1000]">
         <div className="glass-card rounded-2xl p-4 max-w-md">
-          <div className="flex gap-2">
-            <Input
-              placeholder="Standort suchen..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="glass-subtle border-0"
-            />
-            <Button onClick={handleSearch} variant="secondary" size="icon">
-              <Search className="w-4 h-4" />
-            </Button>
+          <div className="relative">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Adresse eingeben..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="glass-subtle border-0"
+              />
+              <Button 
+                onClick={() => setShowLayerPanel(!showLayerPanel)} 
+                variant="secondary" 
+                size="icon"
+              >
+                <Layers className="w-4 h-4" />
+              </Button>
+            </div>
+            
+            {/* Search Results */}
+            {searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-2 glass-card rounded-xl max-h-48 overflow-y-auto">
+                {searchResults.map((result, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleSearchResultClick(result)}
+                    className="w-full text-left p-3 hover:bg-white/10 transition-colors first:rounded-t-xl last:rounded-b-xl"
+                  >
+                    <div className="text-sm font-medium truncate">{result.display_name}</div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Layer Panel */}
+      {showLayerPanel && (
+        <div className="absolute top-4 right-4 z-[1000] w-64">
+          <div className="glass-card rounded-2xl p-4">
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <Layers className="w-4 h-4" />
+              Karten-Layer
+            </h3>
+            <div className="space-y-2">
+              {wmsLayers.map((layer) => (
+                <div key={layer.id} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${layer.color}`} />
+                    <span className="text-sm">{layer.name}</span>
+                  </div>
+                  <Button
+                    onClick={() => toggleLayer(layer.id)}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    {layer.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Selected Location Card */}
       {selectedLocation && (
@@ -94,24 +319,9 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
         </div>
       )}
 
-      {/* Map Placeholder */}
-      <div className="absolute inset-0 rounded-2xl overflow-hidden bg-muted">
-        <div className="flex items-center justify-center h-full">
-          <div className="glass-card p-8 text-center">
-            <MapPin className="w-12 h-12 mx-auto text-primary mb-4" />
-            <h3 className="text-lg font-semibold mb-2">OpenStreetMap Integration</h3>
-            <p className="text-muted-foreground text-sm">
-              Kartenintegration wird implementiert...
-            </p>
-            <Button 
-              onClick={() => handleMapClick(52.5096, 13.3765)}
-              className="mt-4"
-              variant="outline"
-            >
-              Demo Standort (Berlin)
-            </Button>
-          </div>
-        </div>
+      {/* Map */}
+      <div className="absolute inset-0 rounded-2xl overflow-hidden">
+        <div ref={mapContainerRef} className="w-full h-full" />
       </div>
     </div>
   );
