@@ -8,6 +8,29 @@ import ReportModal from '@/components/ReportModal';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'map'>('dashboard');
+  const [savedLocations, setSavedLocations] = useState([
+    {
+      id: '1',
+      address: 'Potsdamer Platz 1, Berlin',
+      lat: 52.5096,
+      lng: 13.3765,
+      overallScore: 85
+    },
+    {
+      id: '2', 
+      address: 'Alexanderplatz, Berlin',
+      lat: 52.5220,
+      lng: 13.4134,
+      overallScore: 78
+    },
+    {
+      id: '3',
+      address: 'Brandenburger Tor, Berlin',
+      lat: 52.5163,
+      lng: 13.3777,
+      overallScore: 92
+    }
+  ]);
   const [analysisLocation, setAnalysisLocation] = useState<{
     id: string;
     address: string;
@@ -17,7 +40,15 @@ const Index = () => {
   const [reportLocation, setReportLocation] = useState<any>(null);
 
   const handleLocationSave = (location: { lng: number; lat: number; address: string }) => {
-    console.log('Saving location:', location);
+    const newLocation = {
+      id: Date.now().toString(),
+      address: location.address,
+      lat: location.lat,
+      lng: location.lng,
+      overallScore: Math.floor(Math.random() * 40) + 60 // Random score between 60-100
+    };
+    
+    setSavedLocations(prev => [...prev, newLocation]);
     
     toast.success('Standort gespeichert!', {
       description: `${location.address} wurde erfolgreich hinzugefügt.`,
@@ -76,7 +107,10 @@ const Index = () => {
           />
         ) : (
           <div className="h-[calc(100vh-80px)] p-4">
-            <LeafletMap onLocationSave={handleLocationSave} />
+            <LeafletMap 
+              onLocationSave={handleLocationSave} 
+              savedLocations={savedLocations}
+            />
           </div>
         )}
       </main>

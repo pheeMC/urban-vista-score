@@ -14,8 +14,17 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
+interface SavedLocation {
+  id: string;
+  address: string;
+  lat: number;
+  lng: number;
+  overallScore?: number;
+}
+
 interface MapProps {
   onLocationSave?: (location: { lng: number; lat: number; address: string }) => void;
+  savedLocations?: SavedLocation[];
 }
 
 interface WMSLayer {
@@ -28,9 +37,10 @@ interface WMSLayer {
 }
 
 
-const LeafletMap = ({ onLocationSave }: MapProps) => {
+const LeafletMap = ({ onLocationSave, savedLocations = [] }: MapProps) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchMarker, setSearchMarker] = useState<{ lat: number; lng: number; address: string } | null>(null);
   const [showLayerPanel, setShowLayerPanel] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<{
     lng: number;
@@ -42,6 +52,8 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
   const searchTimeoutRef = useRef<NodeJS.Timeout>();
   const wmsLayerRefs = useRef<{ [key: string]: L.TileLayer.WMS }>({});
   const selectedMarkerRef = useRef<L.Marker | null>(null);
+  const searchMarkerRef = useRef<L.Marker | null>(null);
+  const savedMarkersRef = useRef<L.Marker[]>([]);
 
   const [wmsLayers, setWmsLayers] = useState<WMSLayer[]>([
     {
@@ -91,7 +103,7 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
     searchTimeoutRef.current = setTimeout(async () => {
       try {
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5&addressdetails=1&bounded=1&viewbox=13.0883,52.3389,13.7611,52.6755`
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery + ', Berlin')}&limit=5&addressdetails=1&bounded=1&viewbox=13.0883,52.3389,13.7611,52.6755&countrycodes=de`
         );
         const data = await response.json();
         setSearchResults(data);
@@ -108,11 +120,14 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
     };
   }, [searchQuery]);
 
-  // Initialize map
+  // Initialize map (Berlin bounds)
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    const map = L.map(mapContainerRef.current).setView([52.5200, 13.4050], 11);
+    const map = L.map(mapContainerRef.current, {
+      maxBounds: [[52.3389, 13.0883], [52.6755, 13.7611]], // Berlin bounds
+      maxBoundsViscosity: 1.0
+    }).setView([52.5200, 13.4050], 11);
     
     // Add OpenStreetMap base layer
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -167,6 +182,9 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
     setSearchResults([]);
     setSearchQuery(result.display_name);
     
+    // Set search marker
+    setSearchMarker({ lat, lng, address: result.display_name });
+    
     if (mapRef.current) {
       mapRef.current.setView([lat, lng], 16);
     }
@@ -178,7 +196,68 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
     ));
   };
 
-  // Handle selected location marker
+  // Handle search marker
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Remove existing search marker
+    if (searchMarkerRef.current) {
+      mapRef.current.removeLayer(searchMarkerRef.current);
+      searchMarkerRef.current = null;
+    }
+
+    // Add new search marker if location is searched
+    if (searchMarker) {
+      const marker = L.marker([searchMarker.lat, searchMarker.lng], {
+        icon: L.icon({
+          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+          iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41]
+        })
+      })
+        .bindPopup(`<strong>Suchergebnis</strong><br/>${searchMarker.address}`)
+        .addTo(mapRef.current);
+      searchMarkerRef.current = marker;
+    }
+  }, [searchMarker]);
+
+  // Handle saved locations markers
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Remove existing saved markers
+    savedMarkersRef.current.forEach(marker => {
+      mapRef.current?.removeLayer(marker);
+    });
+    savedMarkersRef.current = [];
+
+    // Add markers for all saved locations
+    savedLocations.forEach((location) => {
+      const marker = L.marker([location.lat, location.lng], {
+        icon: L.icon({
+          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+          iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41]
+        })
+      })
+        .bindPopup(`
+          <div>
+            <strong>Gespeicherter Standort</strong><br/>
+            ${location.address}<br/>
+            ${location.overallScore ? `<span style="color: #22c55e;">Score: ${location.overallScore}/100</span>` : ''}
+          </div>
+        `)
+        .addTo(mapRef.current!);
+      
+      savedMarkersRef.current.push(marker);
+    });
+  }, [savedLocations]);
+
+  // Handle selected location marker  
   useEffect(() => {
     if (!mapRef.current) return;
 
@@ -190,8 +269,16 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
 
     // Add new marker if location is selected
     if (selectedLocation) {
-      const marker = L.marker([selectedLocation.lat, selectedLocation.lng])
-        .bindPopup(`<strong>Ausgewählter Standort</strong><br/>${selectedLocation.address}`)
+      const marker = L.marker([selectedLocation.lat, selectedLocation.lng], {
+        icon: L.icon({
+          iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+          iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41]
+        })
+      })
+        .bindPopup(`<strong>Neuer Standort</strong><br/>${selectedLocation.address}`)
         .addTo(mapRef.current);
       selectedMarkerRef.current = marker;
     }
@@ -220,6 +307,8 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
     if (selectedLocation && onLocationSave) {
       onLocationSave(selectedLocation);
       setSelectedLocation(null);
+      // Clear search marker when saving
+      setSearchMarker(null);
     }
   };
 
@@ -231,7 +320,7 @@ const LeafletMap = ({ onLocationSave }: MapProps) => {
           <div className="relative">
             <div className="flex gap-2">
               <Input
-                placeholder="Adresse eingeben..."
+                placeholder="Adresse in Berlin eingeben..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="glass-subtle border-0"
