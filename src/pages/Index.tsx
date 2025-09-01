@@ -8,7 +8,7 @@ import ReportModal from '@/components/ReportModal';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'map'>('dashboard');
-  const [savedLocations, setSavedLocations] = useState([
+  const [savedLocations, setSavedLocations] = useState<Array<{ id: string; address: string; lat: number; lng: number; overallScore?: number; scores?: { traffic: number; publicTransport: number; pedestrians: number; visibility: number; heritage: number; tourism: number; accessibility: number; trees: number; }; lastAnalyzed?: string }>>([
     {
       id: '1',
       address: 'Potsdamer Platz 1, Berlin',
@@ -45,7 +45,19 @@ const Index = () => {
       address: location.address,
       lat: location.lat,
       lng: location.lng,
-      overallScore: Math.floor(Math.random() * 40) + 60 // Random score between 60-100
+      // Initially not analyzed; show 0 until analysis is run
+      overallScore: 0,
+      scores: {
+        traffic: 0,
+        publicTransport: 0,
+        pedestrians: 0,
+        visibility: 0,
+        heritage: 0,
+        tourism: 0,
+        accessibility: 0,
+        trees: 0,
+      },
+      lastAnalyzed: ''
     };
     
     setSavedLocations(prev => [...prev, newLocation]);
@@ -104,6 +116,7 @@ const Index = () => {
             onShowMap={() => setCurrentView('map')}
             onAnalyze={handleAnalyze}
             onGenerateReport={handleGenerateReport}
+            savedLocations={savedLocations}
           />
         ) : (
           <div className="h-[calc(100vh-80px)] p-4">

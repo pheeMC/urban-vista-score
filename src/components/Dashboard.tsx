@@ -20,9 +20,27 @@ interface DashboardProps {
   onShowMap: () => void;
   onAnalyze: (id: string) => void;
   onGenerateReport: (id: string) => void;
+  savedLocations?: Array<{
+    id: string;
+    address: string;
+    lat: number;
+    lng: number;
+    overallScore?: number;
+    scores?: {
+      traffic: number;
+      publicTransport: number;
+      pedestrians: number;
+      visibility: number;
+      heritage: number;
+      tourism: number;
+      accessibility: number;
+      trees: number;
+    };
+    lastAnalyzed?: string;
+  }>;
 }
 
-const Dashboard = ({ onShowMap, onAnalyze, onGenerateReport }: DashboardProps) => {
+const Dashboard = ({ onShowMap, onAnalyze, onGenerateReport, savedLocations = [] }: DashboardProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
 
@@ -84,7 +102,29 @@ const Dashboard = ({ onShowMap, onAnalyze, onGenerateReport }: DashboardProps) =
     }
   ];
 
-  const filteredLocations = mockLocations.filter(location => {
+  // Map savedLocations (if any) to the internal LocationData shape used by LocationCard
+  const mappedSaved = (savedLocations || []).map((loc) => ({
+    id: loc.id,
+    address: loc.address,
+    lat: loc.lat,
+    lng: loc.lng,
+    scores: loc.scores ?? {
+      traffic: 0,
+      publicTransport: 0,
+      pedestrians: 0,
+      visibility: 0,
+      heritage: 0,
+      tourism: 0,
+      accessibility: 0,
+      trees: 0,
+    },
+    overallScore: loc.overallScore ?? 0,
+    lastAnalyzed: loc.lastAnalyzed ?? '—',
+  }));
+
+  const data = mappedSaved.length > 0 ? mappedSaved : mockLocations;
+
+  const filteredLocations = data.filter(location => {
     const matchesSearch = location.address.toLowerCase().includes(searchTerm.toLowerCase());
     
     if (selectedFilter === 'all') return matchesSearch;
@@ -98,9 +138,9 @@ const Dashboard = ({ onShowMap, onAnalyze, onGenerateReport }: DashboardProps) =
   });
 
   const getFilterCount = (filter: typeof selectedFilter) => {
-    if (filter === 'all') return mockLocations.length;
+    if (filter === 'all') return data.length;
     
-    return mockLocations.filter(location => {
+    return data.filter(location => {
       const score = location.overallScore;
       if (filter === 'high') return score >= 80;
       if (filter === 'medium') return score >= 60 && score < 80;
@@ -109,9 +149,9 @@ const Dashboard = ({ onShowMap, onAnalyze, onGenerateReport }: DashboardProps) =
     }).length;
   };
 
-  const avgScore = Math.round(
-    mockLocations.reduce((sum, loc) => sum + loc.overallScore, 0) / mockLocations.length
-  );
+  const avgScore = data.length > 0 ? Math.round(
+    data.reduce((sum, loc) => sum + (loc.overallScore ?? 0), 0) / data.length
+  ) : 0;
 
 
   return (
@@ -144,7 +184,7 @@ const Dashboard = ({ onShowMap, onAnalyze, onGenerateReport }: DashboardProps) =
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Gespeicherte Standorte</p>
-              <p className="text-xl font-bold">{mockLocations.length}</p>
+              <p className="text-xl font-bold">{data.length}</p>
             </div>
           </div>
         </Card>

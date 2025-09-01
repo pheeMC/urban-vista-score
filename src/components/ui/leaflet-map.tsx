@@ -182,8 +182,9 @@ const LeafletMap = ({ onLocationSave, savedLocations = [] }: MapProps) => {
     setSearchResults([]);
     setSearchQuery(result.display_name);
     
-    // Set search marker
+    // Set search marker and preselect location so the save card appears
     setSearchMarker({ lat, lng, address: result.display_name });
+    setSelectedLocation({ lat, lng, address: result.display_name });
     
     if (mapRef.current) {
       mapRef.current.setView([lat, lng], 16);

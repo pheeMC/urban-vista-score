@@ -142,6 +142,11 @@ const ReportModal = ({ isOpen, onClose, location }: ReportModalProps) => {
 
     mapInstanceRef.current = map;
 
+    // Ensure proper rendering after tab becomes visible
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 50);
+
     return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
