@@ -71,7 +71,7 @@ const LocationCard = ({ location, onAnalyze, onGenerateReport }: LocationCardPro
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
             <MapPin className="w-4 h-4 text-primary" />
-            <h3 className="font-semibold text-sm truncate">{location.address}</h3>
+            <h3 className="font-semibold text-sm truncate max-w-[140px]" title={location.address}>{location.address}</h3>
           </div>
           <p className="text-xs text-muted-foreground font-mono">
             {location.lat.toFixed(6)}, {location.lng.toFixed(6)}

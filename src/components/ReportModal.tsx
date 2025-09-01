@@ -95,7 +95,7 @@ const ReportModal = ({ isOpen, onClose, location }: ReportModalProps) => {
 
   // Map initialization
   useEffect(() => {
-    if (!isOpen || !location || !mapContainerRef.current || activeTab !== 'map') return;
+    if (!isOpen || !location || !mapContainerRef.current) return;
 
     // Cleanup existing map
     if (mapInstanceRef.current) {
@@ -144,8 +144,10 @@ const ReportModal = ({ isOpen, onClose, location }: ReportModalProps) => {
 
     // Ensure proper rendering after tab becomes visible
     setTimeout(() => {
-      map.invalidateSize();
-    }, 50);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    }, 100);
 
     return () => {
       if (mapInstanceRef.current) {
@@ -154,6 +156,17 @@ const ReportModal = ({ isOpen, onClose, location }: ReportModalProps) => {
       }
     };
   }, [isOpen, location, activeTab]);
+  
+  // Additional effect to handle tab changes and resize map
+  useEffect(() => {
+    if (activeTab === 'map' && mapInstanceRef.current) {
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+      }, 100);
+    }
+  }, [activeTab]);
 
   if (!location) return null;
 

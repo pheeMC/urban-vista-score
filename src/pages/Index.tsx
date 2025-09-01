@@ -70,37 +70,34 @@ const Index = () => {
   };
 
   const handleAnalyze = (id: string) => {
-    // TODO: Get actual location data
-    const mockLocation = {
-      id,
-      address: 'Potsdamer Platz 1, Berlin',
-      lat: 52.5096,
-      lng: 13.3765
-    };
-    setAnalysisLocation(mockLocation);
+    const location = savedLocations.find(loc => loc.id === id);
+    if (location) {
+      setAnalysisLocation({
+        id: location.id,
+        address: location.address,
+        lat: location.lat,
+        lng: location.lng
+      });
+    }
   };
 
   const handleGenerateReport = (id: string) => {
-    // TODO: Get actual location data
-    const mockLocation = {
-      id,
-      address: 'Potsdamer Platz 1, Berlin',
-      lat: 52.5096,
-      lng: 13.3765,
-      scores: {
-        traffic: 95,
-        publicTransport: 90,
-        pedestrians: 88,
-        visibility: 92,
-        heritage: 45,
-        tourism: 85,
-        accessibility: 78,
-        trees: 65
-      },
-      overallScore: 80,
-      lastAnalyzed: '2024-01-15'
-    };
-    setReportLocation(mockLocation);
+    const location = savedLocations.find(loc => loc.id === id);
+    if (location && location.scores && location.overallScore) {
+      setReportLocation({
+        id: location.id,
+        address: location.address,
+        lat: location.lat,
+        lng: location.lng,
+        scores: location.scores,
+        overallScore: location.overallScore,
+        lastAnalyzed: location.lastAnalyzed || new Date().toISOString().split('T')[0]
+      });
+    } else {
+      toast.error('Bitte führen Sie zuerst eine Analyse durch', {
+        description: 'Der Standort muss analysiert werden, bevor ein Bericht erstellt werden kann.',
+      });
+    }
   };
 
   return (
@@ -134,7 +131,19 @@ const Index = () => {
         location={analysisLocation}
         onSaveAnalysis={(locationId, analysis) => {
           console.log('Analysis saved:', locationId, analysis);
-          // TODO: Save analysis to database
+          // Update saved location with analysis results
+          setSavedLocations(prev => 
+            prev.map(loc => 
+              loc.id === locationId 
+                ? { 
+                    ...loc, 
+                    scores: analysis, 
+                    overallScore: analysis.overallScore,
+                    lastAnalyzed: new Date().toISOString().split('T')[0]
+                  }
+                : loc
+            )
+          );
         }}
       />
 
