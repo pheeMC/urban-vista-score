@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card } from './ui/card';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { 
   FileText, 
   Download, 
@@ -22,8 +23,11 @@ import {
   Shield,
   Camera,
   Building,
-  TreePine
+  TreePine,
+  Map as MapIcon
 } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 interface LocationData {
   id: string;
@@ -52,6 +56,99 @@ interface ReportModalProps {
 
 const ReportModal = ({ isOpen, onClose, location }: ReportModalProps) => {
   const [reportType, setReportType] = useState<'summary' | 'detailed'>('summary');
+  const [activeTab, setActiveTab] = useState<'report' | 'map'>('report');
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const layersRef = useRef<{ [key: string]: L.TileLayer }>({});
+
+  // WMS Layers für Berlin GDI
+  const wmsLayers = [
+    {
+      id: 'traffic',
+      name: 'Verkehrsdichte',
+      url: 'https://fbinter.stadt-berlin.de/fb/wms/senstadt/k_vms2015',
+      layers: 'fis:sb_vms_count_kfz',
+      color: 'rgb(255, 0, 0)'
+    },
+    {
+      id: 'publicTransport',
+      name: 'ÖPNV Haltestellen',
+      url: 'https://fbinter.stadt-berlin.de/fb/wms/senstadt/k_vbb',
+      layers: 'fis:re_haltest',
+      color: 'rgb(0, 100, 255)'
+    },
+    {
+      id: 'heritage',
+      name: 'Denkmäler',
+      url: 'https://fbinter.stadt-berlin.de/fb/wms/senstadt/wmsk_denkmal',
+      layers: 'fis:s_einzeldenkmal_punkt',
+      color: 'rgb(139, 69, 19)'
+    },
+    {
+      id: 'trees',
+      name: 'Baumbestand',
+      url: 'https://fbinter.stadt-berlin.de/fb/wms/senstadt/k_wfs_baumbestand',
+      layers: 'fis:s_wfs_baumbestand',
+      color: 'rgb(0, 128, 0)'
+    }
+  ];
+
+  // Map initialization
+  useEffect(() => {
+    if (!isOpen || !location || !mapContainerRef.current || activeTab !== 'map') return;
+
+    // Cleanup existing map
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+
+    // Initialize map
+    const map = L.map(mapContainerRef.current, {
+      center: [location.lat, location.lng],
+      zoom: 16,
+      zoomControl: true
+    });
+
+    // Add base layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Add location marker
+    const locationIcon = L.divIcon({
+      html: `<div style="background: rgb(239, 68, 68); width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+      className: 'custom-marker'
+    });
+
+    L.marker([location.lat, location.lng], { icon: locationIcon })
+      .addTo(map)
+      .bindPopup(`<strong>${location.address}</strong><br/>Score: ${location.overallScore}/100`)
+      .openPopup();
+
+    // Add WMS layers
+    wmsLayers.forEach(layer => {
+      const wmsLayer = L.tileLayer.wms(layer.url, {
+        layers: layer.layers,
+        format: 'image/png',
+        transparent: true,
+        attribution: 'Berlin GDI'
+      });
+      layersRef.current[layer.id] = wmsLayer;
+      wmsLayer.addTo(map);
+    });
+
+    mapInstanceRef.current = map;
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [isOpen, location, activeTab]);
 
   if (!location) return null;
 
@@ -93,33 +190,46 @@ const ReportModal = ({ isOpen, onClose, location }: ReportModalProps) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-primary" />
-            Werbe-Potential Bericht
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            <MapPin className="h-5 w-5" />
+            Standort-Bericht: {location.address}
           </DialogTitle>
-          <div className="flex gap-2">
-            <Button
-              variant={reportType === 'summary' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setReportType('summary')}
-            >
-              Zusammenfassung
-            </Button>
-            <Button
-              variant={reportType === 'detailed' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setReportType('detailed')}
-            >
-              Detailliert
-            </Button>
-          </div>
         </DialogHeader>
 
-        <div className="space-y-6">
-          {/* Header Information */}
-          <Card className="glass-card p-6">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'report' | 'map')} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="report" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Bericht
+            </TabsTrigger>
+            <TabsTrigger value="map" className="flex items-center gap-2">
+              <MapIcon className="h-4 w-4" />
+              Karte
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="report" className="space-y-6 mt-6">
+            <div className="flex gap-2 mb-4">
+              <Button
+                variant={reportType === 'summary' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setReportType('summary')}
+              >
+                Zusammenfassung
+              </Button>
+              <Button
+                variant={reportType === 'detailed' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setReportType('detailed')}
+              >
+                Detailliert
+              </Button>
+            </div>
+
+            {/* Header Information */}
+            <Card className="glass-card p-6">
             <div className="flex items-start justify-between">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -271,36 +381,74 @@ const ReportModal = ({ isOpen, onClose, location }: ReportModalProps) => {
             </div>
           </Card>
 
-          {/* Actions */}
-          <div className="flex gap-3">
-            <Button 
-              onClick={() => handleExport('pdf')}
-              className="bg-gradient-primary"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              PDF exportieren
-            </Button>
-            <Button 
-              variant="outline"
-              onClick={() => handleExport('excel')}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Excel exportieren
-            </Button>
-            <Button variant="outline" onClick={() => window.print()}>
-              <Printer className="w-4 h-4 mr-2" />
-              Drucken
-            </Button>
-            <Button variant="outline">
-              <Share2 className="w-4 h-4 mr-2" />
-              Teilen
-            </Button>
-            <div className="flex-1" />
-            <Button variant="ghost" onClick={onClose}>
-              Schließen
-            </Button>
-          </div>
-        </div>
+            {/* Actions */}
+            <div className="flex gap-3">
+              <Button 
+                onClick={() => handleExport('pdf')}
+                className="bg-gradient-primary"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                PDF exportieren
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={() => handleExport('excel')}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Excel exportieren
+              </Button>
+              <Button variant="outline" onClick={() => window.print()}>
+                <Printer className="w-4 h-4 mr-2" />
+                Drucken
+              </Button>
+              <Button variant="outline">
+                <Share2 className="w-4 h-4 mr-2" />
+                Teilen
+              </Button>
+              <div className="flex-1" />
+              <Button variant="ghost" onClick={onClose}>
+                Schließen
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="map" className="space-y-4 mt-6">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Interaktive Karte</h3>
+                <div className="text-sm text-muted-foreground">
+                  Alle relevanten Datenschichten werden angezeigt
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                {wmsLayers.map(layer => (
+                  <div key={layer.id} className="flex items-center gap-2 text-sm">
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ backgroundColor: layer.color }}
+                    ></div>
+                    <span>{layer.name}</span>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="border rounded-lg overflow-hidden">
+                <div 
+                  ref={mapContainerRef} 
+                  className="h-[500px] w-full"
+                  style={{ minHeight: '500px' }}
+                />
+              </div>
+              
+              <div className="text-sm text-muted-foreground text-center">
+                Diese Karte zeigt den analysierten Standort mit allen relevanten Berliner Geodaten.
+                <br />
+                Externe können diese Karte zur Verifikation der Analyseergebnisse nutzen.
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
